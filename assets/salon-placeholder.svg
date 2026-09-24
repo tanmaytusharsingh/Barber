@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450" role="img" aria-labelledby="title desc">
+	<title id="title">The Barber Company</title>
+	<desc id="desc">A minimalist TB monogram for The Barber Company</desc>
+	<rect width="800" height="450" fill="#f5f2eb"/>
+	<circle cx="400" cy="194" r="86" fill="none" stroke="#315843" stroke-width="2"/>
+	<circle cx="400" cy="194" r="72" fill="#315843"/>
+	<path d="M377 153v82M377 153h29c19 0 29 10 29 24s-10 24-29 24h-29M406 201c20 0 31 10 31 25s-11 26-31 26h-29" fill="none" stroke="#fffdf9" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+	<circle cx="502" cy="112" r="7" fill="#b58a4c"/>
+	<path d="M308 313h184" stroke="#deddd4" stroke-width="2"/>
+	<text x="400" y="342" text-anchor="middle" fill="#17211b" font-family="Georgia,serif" font-size="18" letter-spacing="4">THE BARBER COMPANY</text>
+</svg>

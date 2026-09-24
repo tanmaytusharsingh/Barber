@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 
-const DB_HOST = '127.0.0.1';
-const DB_NAME = 'barber_company';
-const DB_USER = 'root';
-const DB_PASS = '';
+define('DB_HOST', getenv('BARBER_DB_HOST') ?: '127.0.0.1');
+define('DB_NAME', getenv('BARBER_DB_NAME') ?: 'barber_company');
+define('DB_USER', getenv('BARBER_DB_USER') ?: 'root');
+define('DB_PASS', getenv('BARBER_DB_PASS') ?: '');
+date_default_timezone_set('Asia/Kolkata');
 
 function db(): PDO
 {
@@ -25,5 +26,6 @@ function db(): PDO
         ]
     );
 
+    $pdo->exec("SET time_zone = '+05:30'");
     return $pdo;
 }

@@ -1,0 +1,5 @@
+/config/maintenance.lock
+/config/maintenance.guard
+/tests/fixtures.json
+/tests/server*.log
+/tests/server.pid

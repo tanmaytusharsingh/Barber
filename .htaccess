@@ -1,4 +1,10 @@
 Options -Indexes
+RewriteEngine On
+RewriteRule (^|/)(\.[^/]+)(/|$) - [F,L,NC]
+RewriteRule ^(config|includes|database|tests|scripts)(/|$) - [F,L,NC]
+<FilesMatch "(?i)\.(md|sql|log|bak|backup|old|orig|env|ini|toml|lock|zip|tar|gz)$">
+    Require all denied
+</FilesMatch>
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options nosniff
     Header always set X-Frame-Options SAMEORIGIN
