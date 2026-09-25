@@ -31,7 +31,9 @@ if (PHP_SAPI !== 'cli') {
 }
 foreach ([$_GET, $_POST] as $input) {
     foreach ($input as $key=>$value) {
-        if (is_array($value) && !($key === 'service_ids' && count($value) <= 100 && count(array_filter($value, 'is_string')) === count($value))) {
+        $serviceList=$key==='service_ids' && is_array($value) && count($value)<=100 && count(array_filter($value,'is_string'))===count($value);
+        $staffPlan=$key==='staff_plan' && is_array($value) && count($value)<=20 && count(array_filter(array_keys($value),fn($id)=>ctype_digit((string)$id)))===count($value) && count(array_filter($value,fn($id)=>is_string($id) && ctype_digit($id) && (int)$id>0))===count($value);
+        if (is_array($value) && !$serviceList && !$staffPlan) {
             http_response_code(400); exit('Invalid request field.');
         }
         if (is_string($value) && strlen($value) > 10000) { http_response_code(400); exit('Request field is too long.'); }

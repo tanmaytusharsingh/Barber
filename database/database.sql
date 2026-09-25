@@ -175,3 +175,17 @@ INSERT IGNORE INTO schema_migrations(version) VALUES ('002_booking_workflows');
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_items TEXT NULL;
 ALTER TABLE appointments MODIFY COLUMN service_name TEXT NULL;
 INSERT IGNORE INTO schema_migrations(version) VALUES ('003_multiple_services');
+CREATE TABLE IF NOT EXISTS appointment_services (
+ appointment_id INT UNSIGNED NOT NULL,
+ position TINYINT UNSIGNED NOT NULL,
+ service_id INT UNSIGNED NOT NULL,
+ staff_id INT UNSIGNED NOT NULL,
+ start_time TIME NOT NULL,
+ end_time TIME NOT NULL,
+ PRIMARY KEY (appointment_id,position),
+ INDEX idx_segment_availability (staff_id,start_time,end_time),
+ FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE,
+ FOREIGN KEY (service_id) REFERENCES services(id),
+ FOREIGN KEY (staff_id) REFERENCES staff(id)
+) ENGINE=InnoDB;
+INSERT IGNORE INTO schema_migrations(version) VALUES ('004_service_segments');

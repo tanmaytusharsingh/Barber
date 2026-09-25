@@ -70,6 +70,18 @@ check($r['status']===302 && (int)scalar("SELECT COUNT(*) FROM services WHERE sal
 $serviceId=(int)scalar("SELECT id FROM services WHERE salon_id=? AND name='HTTP Service'",[$fixtures['salonId']]);
 $r=request($vendor,'vendor/manage.php?section=staff',['csrf_token'=>token($vendor,'vendor/manage.php?section=staff'),'name'=>'HTTP Specialist','phone'=>'9001234567','specialization'=>'Hair','experience_years'=>'2','status'=>'active','service_ids'=>[(string)$serviceId],'bio'=>'Test']);
 check($r['status']===302 && (int)scalar('SELECT COUNT(*) FROM staff_services WHERE service_id=?',[$serviceId])===1,'Vendor creates and assigns specialist through HTTP');
+$multiPath='customer/booking.php?'.http_build_query(['salon_id'=>$fixtures['salonId'],'service_ids'=>[$fixtures['serviceId'],$serviceId],'appointment_date'=>date('Y-m-d',strtotime('+4 days'))]);
+$multiPage=request($customer,$multiPath);
+check($multiPage['status']===200 && str_contains($multiPage['body'],'No one specialist performs every selected service.') && str_contains($multiPage['body'],'Available time'),'Split specialist booking form shows assigned people and times');
+preg_match_all('/name="staff_plan\[(\d+)\]" value="(\d+)"/',$multiPage['body'],$planMatches,PREG_SET_ORDER);
+$httpPlan=[]; foreach($planMatches as $match) $httpPlan[$match[1]]=$match[2];
+preg_match('/name="request_key" value="([^"]+)"/',$multiPage['body'],$keyMatch);
+preg_match('/name="csrf_token" value="([^"]+)"/',$multiPage['body'],$tokenMatch);
+$multiPost=['csrf_token'=>$tokenMatch[1]??'','request_key'=>$keyMatch[1]??'','salon_id'=>$fixtures['salonId'],'service_ids'=>[$fixtures['serviceId'],$serviceId],'staff_plan'=>$httpPlan,'staff_id'=>'0','appointment_date'=>date('Y-m-d',strtotime('+4 days')),'start_time'=>'13:00','payment_method'=>'cash'];
+$multiResponse=request($customer,'customer/booking.php',$multiPost);
+preg_match('/id=(\d+)/',(string)$multiResponse['redirect'],$multiIdMatch); $multiId=(int)($multiIdMatch[1]??0);
+if (!$multiId) fwrite(STDERR,'Multi booking HTTP '.(string)$multiResponse['status'].' '.strip_tags(substr($multiResponse['body'],0,1000)).PHP_EOL);
+check($multiResponse['status']===302 && $multiId>0 && (int)scalar('SELECT COUNT(*) FROM appointment_services WHERE appointment_id=?',[$multiId])===2,'HTTP multi-service booking reserves both specialist segments');
 $note=(int)scalar('SELECT id FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 1',[$fixtures['customer']]);
 $r=request($customer,'notifications.php',['csrf_token'=>token($customer,'notifications.php'),'id'=>$note]); check($r['status']===302 && (int)scalar('SELECT is_read FROM notifications WHERE id=?',[$note])===1,'Customer can mark own notification read');
 $foreignNote=(int)scalar('SELECT id FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 1',[$fixtures['vendor']]);

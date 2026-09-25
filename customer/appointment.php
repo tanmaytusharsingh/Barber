@@ -18,14 +18,16 @@ $a=query('SELECT * FROM appointments WHERE id=? AND customer_id=?',[$id,$custome
 $salon=query('SELECT * FROM salons WHERE id=?',[$a['salon_id']])->fetch();
 $payment=query('SELECT * FROM payments WHERE appointment_id=?',[$id])->fetch();
 $date=$_POST['appointment_date']??$_GET['date']??$a['appointment_date'];
-$slots=change_allowed($a)?available_slots($salon,(int)$a['staff_id'],$date,(int)$a['duration_minutes'],$id,1800):[];
+$bookedItems=json_decode($a['service_items']??'null',true);
+$rescheduleItems=is_array($bookedItems)?array_map(fn($item)=>['id'=>(int)$item['id'],'staff_id'=>(int)($item['staff_id']??$a['staff_id']),'duration_minutes'=>(int)$item['duration_minutes']],$bookedItems):[];
+$slots=change_allowed($a)?($rescheduleItems?available_plan_slots_for_change($salon,$rescheduleItems,$date,$id):available_slots($salon,(int)$a['staff_id'],$date,(int)$a['duration_minutes'],$id,1800)):[];
 $events=query('SELECT * FROM appointment_events WHERE appointment_id=? ORDER BY id DESC',[$id])->fetchAll();
 $paymentEvents=query('SELECT pe.* FROM payment_events pe JOIN payments p ON p.id=pe.payment_id WHERE p.appointment_id=? ORDER BY pe.id DESC',[$id])->fetchAll();
 $page_title='Booking '.$a['booking_code']; include __DIR__.'/../includes/header.php';
 ?>
 <main class="dashboard-shell"><div class="container"><a href="<?= e(url('customer/appointments.php')) ?>">← My appointments</a><h1 class="mt-3"><?= e($a['service_name']) ?></h1><p><?= e($a['booking_code'].' · '.$a['salon_name'].' · '.$a['staff_name']) ?></p>
 <?php foreach($errors as $error): ?><div class="alert alert-danger" role="alert"><?= e($error) ?></div><?php endforeach; ?>
-<div class="row g-4"><section class="col-lg-6"><div class="dashboard-card p-4"><h2 class="h4"><?= e(ucfirst($a['status'])) ?></h2><p><?= e($a['appointment_date'].' '.substr($a['start_time'],0,5).'–'.substr($a['end_time'],0,5)) ?> IST</p><p><?= money($a['amount']) ?> · <?= (int)$a['duration_minutes'] ?> minutes</p>
+<div class="row g-4"><section class="col-lg-6"><div class="dashboard-card p-4"><h2 class="h4"><?= e(ucfirst($a['status'])) ?></h2><p><?= e($a['appointment_date'].' '.substr($a['start_time'],0,5).'–'.substr($a['end_time'],0,5)) ?> IST</p><p><?= money($a['amount']) ?> · <?= (int)$a['duration_minutes'] ?> minutes</p><?php if(is_array($bookedItems) && count($bookedItems)>1): ?><h3 class="h6">Services and specialists</h3><ul><?php foreach($bookedItems as $item): ?><li><?= e($item['name'].' — '.($item['staff_name']??$a['staff_name'])) ?> · <?= (int)$item['duration_minutes'] ?> min</li><?php endforeach; ?></ul><?php endif; ?>
 <?php if($a['status']==='confirmed'): ?><p><strong>Change deadline:</strong> <?= appointment_start($a)->modify('-30 minutes')->format('d M Y, H:i') ?> IST</p>
 <?php if(change_allowed($a)): ?>
 <form method="post"><?= form_token() ?><button name="action" value="cancel" class="btn btn-outline-danger">Cancel appointment</button><p class="small mt-2">Cancellation releases your slot and fully refunds any simulated payment.</p></form>

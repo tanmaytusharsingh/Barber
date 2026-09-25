@@ -20,6 +20,7 @@ Demo accounts use password `password`: `admin@thebarbercompany.test`, `vendor@th
 ## Booking and appointment rules
 
 - Bookings confirm immediately and appear on the vendor Appointments page. No vendor confirmation is required.
+- Customers may select several services in one appointment. When one active specialist offers all of them, the customer chooses that person. Otherwise the system assigns an active qualified specialist to each service. Services run consecutively; one booking and one simulated payment cover the combined price and duration. Availability, rescheduling and cancellation account for every specialist's reserved segment.
 - All dates and times use India Standard Time, `Asia/Kolkata`.
 - Only the owning customer can cancel/reschedule a confirmed booking. At least **30 minutes** must remain before its current start; exactly 30 minutes is allowed. The server rechecks this after locking the appointment.
 - A rescheduled appointment must also start at least 30 minutes in the future. Its service, specialist, duration, price, booking code and payment link remain unchanged.

@@ -22,7 +22,7 @@ function race(array $jobs): array {
 }
 // Dedicated test database only: reset fixture content while retaining the migrated schema.
 db()->exec('SET FOREIGN_KEY_CHECKS=0');
-foreach (['payment_events','appointment_events','payments','appointments','notifications','reviews','favorites','salon_gallery','staff_services','staff','services','salons','users'] as $table) db()->exec('TRUNCATE TABLE '.$table);
+foreach (['payment_events','appointment_events','payments','appointment_services','appointments','notifications','reviews','favorites','salon_gallery','staff_services','staff','services','salons','users'] as $table) db()->exec('TRUNCATE TABLE '.$table);
 db()->exec('SET FOREIGN_KEY_CHECKS=1');
 function user_fixture(string $role,string $suffix,string $status='active'): int {
     query('INSERT INTO users(name,email,phone,password_hash,role,status) VALUES (?,?,?,?,?,?)',['Test '.$suffix,$suffix.'@example.test','9000000000',password_hash('TestPass123!',PASSWORD_DEFAULT),$role,$status]); return (int)db()->lastInsertId();
@@ -79,6 +79,39 @@ try { create_booking($customer,input_booking('14:00')); check(false,'Storage fai
 catch (PDOException) { check($before===[count_table('appointments'),count_table('payments'),count_table('appointment_events')],'Storage failure rolls back appointment, payment and history'); }
 finally { db()->exec('DROP TRIGGER test_notification_failure'); }
 $adjacent=create_booking($other,input_booking('10:45')); check($adjacent>0,'Adjacent appointment accepted');
+$bundleServiceId=0;
+query("INSERT INTO services(salon_id,name,price,duration_minutes,status) VALUES (?, 'Bundle Service', 150, 30, 'active')",[$salonId]);
+$bundleServiceId=(int)db()->lastInsertId();
+query('INSERT INTO staff_services(staff_id,service_id) VALUES (?,?)',[$staffId,$bundleServiceId]);
+$bundleKey=bin2hex(random_bytes(24));
+$bundle=create_booking($other,['salon_id'=>$salonId,'service_ids'=>[$serviceId,$bundleServiceId],'appointment_date'=>$tomorrow,'start_time'=>'13:00','payment_method'=>'card','request_key'=>$bundleKey]);
+$bundleAppointment=fetch_booking($bundle);
+check((int)$bundleAppointment['staff_id']===$staffId && (int)$bundleAppointment['duration_minutes']===75 && $bundleAppointment['service_items']!==null,'Multi-service booking assigns a qualified specialist automatically');
+check(booking_plan($salon,[$serviceId,$bundleServiceId],$staffId)===[$serviceId=>$staffId,$bundleServiceId=>$staffId],'Customer can explicitly choose a specialist qualified for every service');
+$secondStaffData=[...$staffData,'name'=>'Second Specialist','service_ids'=>[]];
+save_vendor($vendor,'staff',$secondStaffData); $secondStaff=(int)query("SELECT id FROM staff WHERE salon_id=? AND name='Second Specialist'",[$salonId])->fetchColumn();
+query("INSERT INTO services(salon_id,name,price,duration_minutes,status) VALUES (?, 'Specialty Finish', 90, 30, 'active')",[$salonId]);
+$splitService=(int)db()->lastInsertId();
+query('INSERT INTO staff_services(staff_id,service_id) VALUES (?,?)',[$secondStaff,$splitService]);
+check(!booking_staff_candidates($salonId,[$serviceId,$splitService]),'No single specialist offers both split services');
+reject(fn()=>booking_plan($salon,[$serviceId,$splitService],$staffId),'Cannot force one specialist who lacks an assignment');
+$splitPlan=booking_plan($salon,[$serviceId,$splitService],0);
+check($splitPlan[$serviceId]===$staffId && $splitPlan[$splitService]===$secondStaff,'Random fallback assigns a qualified specialist to each service');
+$splitData=['salon_id'=>$salonId,'service_ids'=>[$serviceId,$splitService],'staff_plan'=>$splitPlan,'appointment_date'=>$tomorrow,'start_time'=>'16:00','payment_method'=>'cash','request_key'=>bin2hex(random_bytes(24))];
+$split=create_booking($customer,$splitData); $splitAppointment=fetch_booking($split);
+$splitRows=query('SELECT staff_id,start_time,end_time FROM appointment_services WHERE appointment_id=? ORDER BY position',[$split])->fetchAll();
+$splitItems=[['id'=>$serviceId,'staff_id'=>$staffId,'duration_minutes'=>45],['id'=>$splitService,'staff_id'=>$secondStaff,'duration_minutes'=>30]];
+check(!in_array('16:00',available_plan_slots($salon,$splitItems,$tomorrow),true),'Availability hides a time occupied by the second specialist');
+check(count($splitRows)===2 && $splitRows[0]['staff_id']==$staffId && $splitRows[0]['start_time']==='16:00:00' && $splitRows[1]['staff_id']==$secondStaff && $splitRows[1]['start_time']==='16:45:00' && $splitAppointment['end_time']==='17:15:00','Split booking reserves consecutive segments under one appointment');
+check((float)$splitAppointment['amount']===411.5 && (int)$splitAppointment['duration_minutes']===75 && (int)query('SELECT COUNT(*) FROM payments WHERE appointment_id=?',[$split])->fetchColumn()===1,'Split booking sums price and duration with one payment');
+reject(fn()=>create_booking($other,['salon_id'=>$salonId,'service_id'=>$splitService,'staff_id'=>$secondStaff,'appointment_date'=>$tomorrow,'start_time'=>'16:45','payment_method'=>'cash','request_key'=>bin2hex(random_bytes(24))]),'Second segment blocks a conflicting booking');
+$splitNewDate=date('Y-m-d',strtotime('+3 days'));
+change_appointment($customer,$split,'reschedule',['appointment_date'=>$splitNewDate,'start_time'=>'18:00']);
+check(query('SELECT start_time FROM appointment_services WHERE appointment_id=? AND position=1',[$split])->fetchColumn()==='18:45:00','Rescheduling moves both specialists atomically');
+$reused=create_booking($other,['salon_id'=>$salonId,'service_id'=>$splitService,'staff_id'=>$secondStaff,'appointment_date'=>$tomorrow,'start_time'=>'16:45','payment_method'=>'cash','request_key'=>bin2hex(random_bytes(24))]);
+check($reused>0,'Old second-specialist slot is available after rescheduling');
+change_appointment($customer,$split,'cancel');
+check(fetch_booking($split)['status']==='cancelled' && in_array('18:00',available_plan_slots($salon,$splitItems,$splitNewDate),true),'Cancelling split booking releases both specialist segments');
 $slots=available_slots($salon,$staffId,$tomorrow,45); check(!in_array('10:15',$slots,true) && in_array('11:30',$slots,true),'Availability excludes conflicts and includes adjacent time');
 reject(fn()=>change_appointment($other,$id,'cancel'),'Other customer cannot cancel');
 reject(fn()=>change_appointment($vendor,$id,'cancel'),'Vendor cannot cancel');

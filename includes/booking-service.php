@@ -53,7 +53,7 @@ function eligible(array $salon, int $serviceId, int $staffId): array {
     return [$service,$staff];
 }
 function ensure_free(int $staffId, DateTimeImmutable $start, DateTimeImmutable $end, int $exclude=0): void {
-    $conflict=query("SELECT id FROM appointments WHERE staff_id=? AND appointment_date=? AND status IN ('pending','confirmed') AND start_time<? AND end_time>? AND id<>? LIMIT 1 FOR UPDATE",[$staffId,$start->format('Y-m-d'),$end->format('H:i:s'),$start->format('H:i:s'),$exclude])->fetchColumn();
+    $conflict=query("SELECT a.id FROM appointments a LEFT JOIN appointment_services seg ON seg.appointment_id=a.id AND seg.staff_id=? WHERE a.appointment_date=? AND a.status IN ('pending','confirmed') AND a.id<>? AND ((seg.appointment_id IS NOT NULL AND seg.start_time<? AND seg.end_time>?) OR (seg.appointment_id IS NULL AND a.staff_id=? AND NOT EXISTS (SELECT 1 FROM appointment_services other_seg WHERE other_seg.appointment_id=a.id) AND a.start_time<? AND a.end_time>?)) LIMIT 1 FOR UPDATE",[$staffId,$start->format('Y-m-d'),$exclude,$end->format('H:i:s'),$start->format('H:i:s'),$staffId,$end->format('H:i:s'),$start->format('H:i:s')])->fetchColumn();
     if ($conflict) throw new InvalidArgumentException('That time has just been booked. Please choose another slot.');
 }
 function notify_booking(array $salon, array $appointment, string $title, string $message): void {
@@ -72,6 +72,47 @@ function booking_service_ids(array $data): array {
     }
     $ids=array_values(array_unique($ids)); sort($ids); return $ids;
 }
+function booking_staff_candidates(int $salonId, array $serviceIds): array {
+    if (!$serviceIds) return [];
+    $marks=implode(',',array_fill(0,count($serviceIds),'?'));
+    return query("SELECT st.* FROM staff st WHERE st.salon_id=? AND st.status='active' AND (SELECT COUNT(DISTINCT ss.service_id) FROM staff_services ss WHERE ss.staff_id=st.id AND ss.service_id IN ($marks))=? ORDER BY st.name",[$salonId,...$serviceIds,count($serviceIds)])->fetchAll();
+}
+function service_staff_candidates(int $salonId,int $serviceId): array {
+    return query("SELECT st.* FROM staff st JOIN staff_services ss ON ss.staff_id=st.id WHERE st.salon_id=? AND st.status='active' AND ss.service_id=? ORDER BY st.id",[$salonId,$serviceId])->fetchAll();
+}
+function booking_plan(array $salon,array $serviceIds,int $chosenStaffId,array $submittedPlan=[]): array {
+    $common=booking_staff_candidates((int)$salon['id'],$serviceIds);
+    $commonIds=array_map(fn($person)=>(int)$person['id'],$common);
+    if ($chosenStaffId && !in_array($chosenStaffId,$commonIds,true)) throw new InvalidArgumentException('Choose a specialist who can perform all selected services.');
+    if ($common) {
+        $person=$chosenStaffId ?: $common[random_int(0,count($common)-1)]['id'];
+        return array_fill_keys($serviceIds,(int)$person);
+    }
+    if ($chosenStaffId) throw new InvalidArgumentException('No single specialist can perform all selected services.');
+    if ($submittedPlan && (count($submittedPlan)!==count($serviceIds) || array_diff(array_map('strval',array_keys($submittedPlan)),array_map('strval',$serviceIds)))) throw new InvalidArgumentException('Reload the booking page to choose specialists.');
+    $plan=[];
+    foreach ($serviceIds as $serviceId) {
+        $candidates=service_staff_candidates((int)$salon['id'],$serviceId);
+        if (!$candidates) throw new InvalidArgumentException('A selected service has no active specialist.');
+        $ids=array_map(fn($candidate)=>(int)$candidate['id'],$candidates);
+        $requested=$submittedPlan[$serviceId]??null;
+        if ($requested!==null && (!is_scalar($requested) || !ctype_digit((string)$requested) || !in_array((int)$requested,$ids,true))) throw new InvalidArgumentException('An assigned specialist is no longer available.');
+        $plan[$serviceId]=$requested!==null?(int)$requested:$ids[random_int(0,count($ids)-1)];
+    }
+    return $plan;
+}
+function service_segments(array $items,DateTimeImmutable $start): array {
+    $segments=[]; $cursor=$start;
+    foreach ($items as $item) {
+        $end=$cursor->modify('+'.$item['duration_minutes'].' minutes');
+        $segments[]=['service_id'=>$item['id'],'staff_id'=>$item['staff_id'],'start'=>$cursor,'end'=>$end];
+        $cursor=$end;
+    }
+    return $segments;
+}
+function ensure_segments_free(array $segments,int $exclude=0): void {
+    foreach ($segments as $segment) ensure_free($segment['staff_id'],$segment['start'],$segment['end'],$exclude);
+}
 function create_booking(int $customerId, array $data): int {
     return transaction(function () use ($customerId,$data): int {
         actor($customerId,'customer');
@@ -80,24 +121,30 @@ function create_booking(int $customerId, array $data): int {
         $salon=salon_lock((int)($data['salon_id']??0));
         $existing=query('SELECT id FROM appointments WHERE customer_id=? AND request_key=? FOR UPDATE',[$customerId,$key])->fetchColumn();
         if ($existing) return (int)$existing;
-        $serviceIds=booking_service_ids($data); $serviceId=$serviceIds[0]; $staffId=(int)($data['staff_id']??0);
+        $serviceIds=booking_service_ids($data); $serviceId=$serviceIds[0]; $chosenStaffId=(int)($data['staff_id']??0);
+        $submittedPlan=$data['staff_plan']??[];
+        if (!is_array($submittedPlan)) throw new InvalidArgumentException('Invalid specialist assignment.');
+        $plan=booking_plan($salon,$serviceIds,$chosenStaffId,$submittedPlan);
+        $staffId=$plan[$serviceId];
         $items=[]; $duration=0; $cents=0;
         foreach ($serviceIds as $selectedId) {
-            [$selected,$staff]=eligible($salon,$selectedId,$staffId);
+            [$selected,$staff]=eligible($salon,$selectedId,$plan[$selectedId]);
             if ((int)$selected['duration_minutes']<1) throw new InvalidArgumentException('A selected service has an invalid duration.');
-            $items[]=['id'=>$selectedId,'name'=>$selected['name'],'price'=>$selected['price'],'duration_minutes'=>(int)$selected['duration_minutes']];
+            $items[]=['id'=>$selectedId,'name'=>$selected['name'],'price'=>$selected['price'],'duration_minutes'=>(int)$selected['duration_minutes'],'staff_id'=>$plan[$selectedId],'staff_name'=>$staff['name']];
             $duration+=(int)$selected['duration_minutes']; $cents+=(int)round((float)$selected['price']*100);
         }
         if ($cents>99999999) throw new InvalidArgumentException('The total appointment price is too high.');
         $service=['name'=>implode(' + ',array_column($items,'name')),'price'=>number_format($cents/100,2,'.',''),'duration_minutes'=>$duration];
         [$start,$end]=validate_interval($salon,field($data,'appointment_date',10),field($data,'start_time',5),(int)$service['duration_minutes']);
-        ensure_free($staffId,$start,$end);
+        $segments=service_segments($items,$start); ensure_segments_free($segments);
         $method=field($data,'payment_method',10);
         if (!in_array($method,['cash','upi','card'],true)) throw new InvalidArgumentException('Choose a valid payment method.');
         $code='TBC-'.date('ymd').'-'.strtoupper(bin2hex(random_bytes(5)));
-        query("INSERT INTO appointments(booking_code,customer_id,salon_id,service_id,staff_id,appointment_date,start_time,end_time,amount,payment_method,status,service_name,staff_name,salon_name,duration_minutes,request_key) VALUES (?,?,?,?,?,?,?,?,?,?,'confirmed',?,?,?,?,?)",[$code,$customerId,$salon['id'],$serviceId,$staffId,$start->format('Y-m-d'),$start->format('H:i:s'),$end->format('H:i:s'),$service['price'],$method,$service['name'],$staff['name'],$salon['name'],$service['duration_minutes'],$key]);
+        $staffNames=array_values(array_unique(array_column($items,'staff_name')));
+        query("INSERT INTO appointments(booking_code,customer_id,salon_id,service_id,staff_id,appointment_date,start_time,end_time,amount,payment_method,status,service_name,staff_name,salon_name,duration_minutes,request_key) VALUES (?,?,?,?,?,?,?,?,?,?,'confirmed',?,?,?,?,?)",[$code,$customerId,$salon['id'],$serviceId,$staffId,$start->format('Y-m-d'),$start->format('H:i:s'),$end->format('H:i:s'),$service['price'],$method,$service['name'],implode(' + ',$staffNames),$salon['name'],$service['duration_minutes'],$key]);
         $id=(int)db()->lastInsertId();
         query('UPDATE appointments SET service_items=? WHERE id=?',[json_encode($items,JSON_THROW_ON_ERROR),$id]);
+        foreach ($segments as $position=>$segment) query('INSERT INTO appointment_services(appointment_id,position,service_id,staff_id,start_time,end_time) VALUES (?,?,?,?,?,?)',[$id,$position,$segment['service_id'],$segment['staff_id'],$segment['start']->format('H:i:s'),$segment['end']->format('H:i:s')]);
         query('INSERT INTO payments(appointment_id,customer_id,vendor_id,amount,method) VALUES (?,?,?,?,?)',[$id,$customerId,$salon['vendor_id'],$service['price'],$method]);
         appointment_event($id,$customerId,'booked',null,$start->format('Y-m-d H:i:s'));
         notify_booking($salon,['customer_id'=>$customerId],'Appointment confirmed',$code.': '.$service['name'].' on '.$start->format('d M Y H:i').'. No approval is needed.');
@@ -127,11 +174,13 @@ function change_appointment(int $customerId,int $id,string $action,array $data=[
             notify_booking($salon,$appointment,'Appointment cancelled',$appointment['booking_code'].' was cancelled. Any paid amount has been fully refunded in the simulation.');
         } else {
             $items=json_decode($appointment['service_items']??'null',true)??[['id'=>$appointment['service_id']]];
-            foreach ($items as $item) eligible($salon,(int)$item['id'],(int)$appointment['staff_id']);
+            foreach ($items as $item) eligible($salon,(int)$item['id'],(int)($item['staff_id']??$appointment['staff_id']));
             [$start,$end]=validate_interval($salon,field($data,'appointment_date',10),field($data,'start_time',5),(int)$appointment['duration_minutes'],1800);
             if ($old===$start->format('Y-m-d H:i:s')) return;
-            ensure_free((int)$appointment['staff_id'],$start,$end,$id);
+            $segments=service_segments(array_map(fn($item)=>['id'=>(int)$item['id'],'staff_id'=>(int)($item['staff_id']??$appointment['staff_id']),'duration_minutes'=>(int)($item['duration_minutes']??$appointment['duration_minutes'])],$items),$start);
+            ensure_segments_free($segments,$id);
             query('UPDATE appointments SET appointment_date=?,start_time=?,end_time=? WHERE id=?',[$start->format('Y-m-d'),$start->format('H:i:s'),$end->format('H:i:s'),$id]);
+            foreach ($segments as $position=>$segment) query('UPDATE appointment_services SET start_time=?,end_time=? WHERE appointment_id=? AND position=?',[$segment['start']->format('H:i:s'),$segment['end']->format('H:i:s'),$id,$position]);
             appointment_event($id,$customerId,'rescheduled',$old,$start->format('Y-m-d H:i:s'));
             notify_booking($salon,$appointment,'Appointment rescheduled',$appointment['booking_code'].' moved to '.$start->format('d M Y H:i').'.');
         }
@@ -166,7 +215,7 @@ function simulate_payment(int $actorId,int $id,string $outcome,string $key,bool 
 }
 function available_slots(array $salon,int $staffId,string $date,int $duration,int $exclude=0,int $lead=0): array {
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D',$date) || $duration<1) return [];
-    $busy=query("SELECT start_time,end_time FROM appointments WHERE staff_id=? AND appointment_date=? AND status IN ('pending','confirmed') AND id<>?",[$staffId,$date,$exclude])->fetchAll();
+    $busy=query("SELECT seg.start_time,seg.end_time FROM appointment_services seg JOIN appointments a ON a.id=seg.appointment_id WHERE seg.staff_id=? AND a.appointment_date=? AND a.status IN ('pending','confirmed') AND a.id<>? UNION ALL SELECT a.start_time,a.end_time FROM appointments a WHERE a.staff_id=? AND a.appointment_date=? AND a.status IN ('pending','confirmed') AND a.id<>? AND NOT EXISTS (SELECT 1 FROM appointment_services seg WHERE seg.appointment_id=a.id)",[$staffId,$date,$exclude,$staffId,$date,$exclude])->fetchAll();
     $slots=[];
     try { $cursor=new DateTimeImmutable($date.' '.$salon['opening_time']); $close=new DateTimeImmutable($date.' '.$salon['closing_time']); } catch (Throwable) { return []; }
     for (; $cursor<$close; $cursor=$cursor->modify('+15 minutes')) {
@@ -175,4 +224,25 @@ function available_slots(array $salon,int $staffId,string $date,int $duration,in
         $slots[]=$start->format('H:i');
     }
     return $slots;
+}
+function available_plan_slots(array $salon,array $items,string $date,int $lead=0,int $exclude=0): array {
+    $duration=array_sum(array_column($items,'duration_minutes'));
+    if (!$items || $duration<1 || $duration>1440 || !preg_match('/^\d{4}-\d{2}-\d{2}$/D',$date)) return [];
+    $slots=[];
+    try { $cursor=new DateTimeImmutable($date.' '.$salon['opening_time']); $close=new DateTimeImmutable($date.' '.$salon['closing_time']); } catch (Throwable) { return []; }
+    for (; $cursor<$close; $cursor=$cursor->modify('+15 minutes')) {
+        try {
+            validate_interval($salon,$date,$cursor->format('H:i'),$duration,$lead);
+            foreach (service_segments($items,$cursor) as $segment) {
+                $busy=query("SELECT 1 FROM appointment_services seg JOIN appointments a ON a.id=seg.appointment_id WHERE seg.staff_id=? AND a.appointment_date=? AND a.status IN ('pending','confirmed') AND a.id<>? AND seg.start_time<? AND seg.end_time>? LIMIT 1",[$segment['staff_id'],$date,$exclude,$segment['end']->format('H:i:s'),$segment['start']->format('H:i:s')])->fetchColumn();
+                $legacy=query("SELECT 1 FROM appointments a WHERE a.staff_id=? AND a.appointment_date=? AND a.status IN ('pending','confirmed') AND a.id<>? AND a.start_time<? AND a.end_time>? AND NOT EXISTS (SELECT 1 FROM appointment_services seg WHERE seg.appointment_id=a.id) LIMIT 1",[$segment['staff_id'],$date,$exclude,$segment['end']->format('H:i:s'),$segment['start']->format('H:i:s')])->fetchColumn();
+                if ($busy || $legacy) continue 2;
+            }
+            $slots[]=$cursor->format('H:i');
+        } catch (InvalidArgumentException) { continue; }
+    }
+    return $slots;
+}
+function available_plan_slots_for_change(array $salon,array $items,string $date,int $exclude): array {
+    return available_plan_slots($salon,$items,$date,1800,$exclude);
 }
