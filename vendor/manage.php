@@ -28,7 +28,7 @@ function management_input(string $key,string $label,string $type='text',int $max
 }
 ?>
 <main class="dashboard-shell"><div class="container"><h1>Manage your salon</h1>
-<nav class="d-flex flex-wrap gap-2 my-4" aria-label="Vendor tools"><a class="btn btn-outline-brand" href="<?= e(url('vendor/dashboard.php')) ?>">Bookings</a><?php foreach(['profile','services','staff'] as $tab): ?><a class="btn btn-outline-brand" href="?section=<?= $tab ?>"><?= ucfirst($tab) ?></a><?php endforeach; ?></nav>
+<nav class="d-flex flex-wrap gap-2 my-4" aria-label="Vendor tools"><a class="btn btn-outline-brand" href="<?= e(url('vendor/appointments.php')) ?>">Bookings</a><?php foreach(['profile','services','staff'] as $tab): ?><a class="btn btn-outline-brand" href="?section=<?= $tab ?>"><?= ucfirst($tab) ?></a><?php endforeach; ?></nav>
 <?php foreach($errors as $error): ?><div class="alert alert-danger" role="alert"><?= e($error) ?></div><?php endforeach; ?>
 <?php if($future): ?><details class="alert alert-warning"><summary>Review <?= count($future) ?> future appointments before changing availability</summary><p>Changes to hours, staff, services or assignments do not cancel these bookings. The customer must make any changes at least 30 minutes before their appointment.</p><ul><?php foreach($future as $a): ?><li><?= e($a['booking_code'].' — '.$a['service_name'].' / '.$a['staff_name'].' — '.$a['appointment_date'].' '.$a['start_time']) ?></li><?php endforeach; ?></ul></details><?php endif; ?>
 <div class="row g-4"><div class="col-lg-7"><form method="post" class="dashboard-card p-4 row g-3"><?= form_token() ?><input type="hidden" name="id" value="<?= $editId ?>">

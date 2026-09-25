@@ -172,3 +172,6 @@ CREATE TABLE IF NOT EXISTS payment_events (
 
 CREATE TABLE IF NOT EXISTS schema_migrations(version VARCHAR(100) PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 INSERT IGNORE INTO schema_migrations(version) VALUES ('002_booking_workflows');
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_items TEXT NULL;
+ALTER TABLE appointments MODIFY COLUMN service_name TEXT NULL;
+INSERT IGNORE INTO schema_migrations(version) VALUES ('003_multiple_services');

@@ -19,7 +19,7 @@ Demo accounts use password `password`: `admin@thebarbercompany.test`, `vendor@th
 
 ## Booking and appointment rules
 
-- Bookings confirm immediately and appear on the vendor dashboard. No vendor confirmation is required.
+- Bookings confirm immediately and appear on the vendor Appointments page. No vendor confirmation is required.
 - All dates and times use India Standard Time, `Asia/Kolkata`.
 - Only the owning customer can cancel/reschedule a confirmed booking. At least **30 minutes** must remain before its current start; exactly 30 minutes is allowed. The server rechecks this after locking the appointment.
 - A rescheduled appointment must also start at least 30 minutes in the future. Its service, specialist, duration, price, booking code and payment link remain unchanged.
@@ -29,7 +29,13 @@ Demo accounts use password `password`: `admin@thebarbercompany.test`, `vendor@th
 
 ## Vendor tools
 
-After admin approval activates the vendor account, use **Dashboard → Manage salon, services & staff**.
+After admin approval activates the vendor account, use **Manage salon** in the vendor navigation.
+
+Vendors land on a dashboard showing total appointments, completed appointments and existing visible customer reviews. The separate Appointments page lists upcoming visits above previous appointments, with filters and pagination. Cancelled bookings are red, paid prepaid bookings green and cash bookings yellow; text labels also identify each state.
+
+Customers keep the salon discovery interface. The profile avatar beside Sign out opens Edit profile and Notifications; its badge shows unread notifications and refreshes periodically. All roles can edit their own name, email and phone number.
+
+Admins land on the approval dashboard. **Manage salons** provides a searchable directory with salon, owner, service and staff information. Each role has its own navigation and workspace styling.
 
 Manage profile/contact information, image URL, daily opening hours, services/categories/prices/durations, specialists and service assignments. Deactivate records instead of deleting appointment history. Availability edits warn about future appointments and do not silently cancel them. Existing appointments retain booked snapshots.
 
@@ -77,6 +83,7 @@ Run:
 & C:/xampp/php/php.exe tests/domain.php
 powershell -File tests/start-server.ps1
 & C:/xampp/php/php.exe tests/http-regression.php
+& C:/xampp/php/php.exe tests/role-ui.php
 & C:/xampp/php/php.exe tests/migration.php
 Get-ChildItem -Recurse -Filter *.php | ForEach-Object { & C:/xampp/php/php.exe -l $_.FullName }
 powershell -File tests/stop-server.ps1

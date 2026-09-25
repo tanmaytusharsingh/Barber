@@ -62,6 +62,16 @@ function notify_booking(array $salon, array $appointment, string $title, string 
 function appointment_event(int $id, int $actorId, string $action, ?string $old=null, ?string $new=null): void {
     query('INSERT INTO appointment_events(appointment_id,actor_id,action,old_schedule,new_schedule) VALUES (?,?,?,?,?)',[$id,$actorId,$action,$old,$new]);
 }
+function booking_service_ids(array $data): array {
+    $values=$data['service_ids']??[$data['service_id']??0];
+    if (!is_array($values) || !$values || count($values)>20) throw new InvalidArgumentException('Choose between 1 and 20 services.');
+    $ids=[];
+    foreach ($values as $value) {
+        if ((!is_string($value) && !is_int($value)) || !ctype_digit((string)$value) || (int)$value<1) throw new InvalidArgumentException('Choose valid services.');
+        $ids[]=(int)$value;
+    }
+    $ids=array_values(array_unique($ids)); sort($ids); return $ids;
+}
 function create_booking(int $customerId, array $data): int {
     return transaction(function () use ($customerId,$data): int {
         actor($customerId,'customer');
@@ -70,8 +80,16 @@ function create_booking(int $customerId, array $data): int {
         $salon=salon_lock((int)($data['salon_id']??0));
         $existing=query('SELECT id FROM appointments WHERE customer_id=? AND request_key=? FOR UPDATE',[$customerId,$key])->fetchColumn();
         if ($existing) return (int)$existing;
-        $serviceId=(int)($data['service_id']??0); $staffId=(int)($data['staff_id']??0);
-        [$service,$staff]=eligible($salon,$serviceId,$staffId);
+        $serviceIds=booking_service_ids($data); $serviceId=$serviceIds[0]; $staffId=(int)($data['staff_id']??0);
+        $items=[]; $duration=0; $cents=0;
+        foreach ($serviceIds as $selectedId) {
+            [$selected,$staff]=eligible($salon,$selectedId,$staffId);
+            if ((int)$selected['duration_minutes']<1) throw new InvalidArgumentException('A selected service has an invalid duration.');
+            $items[]=['id'=>$selectedId,'name'=>$selected['name'],'price'=>$selected['price'],'duration_minutes'=>(int)$selected['duration_minutes']];
+            $duration+=(int)$selected['duration_minutes']; $cents+=(int)round((float)$selected['price']*100);
+        }
+        if ($cents>99999999) throw new InvalidArgumentException('The total appointment price is too high.');
+        $service=['name'=>implode(' + ',array_column($items,'name')),'price'=>number_format($cents/100,2,'.',''),'duration_minutes'=>$duration];
         [$start,$end]=validate_interval($salon,field($data,'appointment_date',10),field($data,'start_time',5),(int)$service['duration_minutes']);
         ensure_free($staffId,$start,$end);
         $method=field($data,'payment_method',10);
@@ -79,6 +97,7 @@ function create_booking(int $customerId, array $data): int {
         $code='TBC-'.date('ymd').'-'.strtoupper(bin2hex(random_bytes(5)));
         query("INSERT INTO appointments(booking_code,customer_id,salon_id,service_id,staff_id,appointment_date,start_time,end_time,amount,payment_method,status,service_name,staff_name,salon_name,duration_minutes,request_key) VALUES (?,?,?,?,?,?,?,?,?,?,'confirmed',?,?,?,?,?)",[$code,$customerId,$salon['id'],$serviceId,$staffId,$start->format('Y-m-d'),$start->format('H:i:s'),$end->format('H:i:s'),$service['price'],$method,$service['name'],$staff['name'],$salon['name'],$service['duration_minutes'],$key]);
         $id=(int)db()->lastInsertId();
+        query('UPDATE appointments SET service_items=? WHERE id=?',[json_encode($items,JSON_THROW_ON_ERROR),$id]);
         query('INSERT INTO payments(appointment_id,customer_id,vendor_id,amount,method) VALUES (?,?,?,?,?)',[$id,$customerId,$salon['vendor_id'],$service['price'],$method]);
         appointment_event($id,$customerId,'booked',null,$start->format('Y-m-d H:i:s'));
         notify_booking($salon,['customer_id'=>$customerId],'Appointment confirmed',$code.': '.$service['name'].' on '.$start->format('d M Y H:i').'. No approval is needed.');
@@ -107,7 +126,8 @@ function change_appointment(int $customerId,int $id,string $action,array $data=[
             appointment_event($id,$customerId,'cancelled',$old);
             notify_booking($salon,$appointment,'Appointment cancelled',$appointment['booking_code'].' was cancelled. Any paid amount has been fully refunded in the simulation.');
         } else {
-            eligible($salon,(int)$appointment['service_id'],(int)$appointment['staff_id']);
+            $items=json_decode($appointment['service_items']??'null',true)??[['id'=>$appointment['service_id']]];
+            foreach ($items as $item) eligible($salon,(int)$item['id'],(int)$appointment['staff_id']);
             [$start,$end]=validate_interval($salon,field($data,'appointment_date',10),field($data,'start_time',5),(int)$appointment['duration_minutes'],1800);
             if ($old===$start->format('Y-m-d H:i:s')) return;
             ensure_free((int)$appointment['staff_id'],$start,$end,$id);

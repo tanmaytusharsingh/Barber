@@ -61,9 +61,9 @@ $r=request($customer,$details,['csrf_token'=>$csrf,'action'=>'reschedule','appoi
 $r=request($customer,$details,['csrf_token'=>$csrf,'action'=>'cancel']); check($r['status']===302 && scalar('SELECT payment_status FROM appointments WHERE id=?',[$id])==='refunded','HTTP cancellation refunds payment');
 $other=client(); login($other,'other@example.test'); check(request($other,$details)['status']===404,'Cross-customer booking detail denied');
 $vendor=client(); login($vendor,'vendor@example.test');
-foreach (['vendor/dashboard.php','vendor/manage.php','vendor/manage.php?section=services','vendor/manage.php?section=staff','notifications.php'] as $path) check(request($vendor,$path)['status']===200,'Vendor route '.$path);
-$r=request($vendor,'vendor/dashboard.php'); check(str_contains($r['body'],'customer@example.test') && str_contains($r['body'],'Customer bookings'),'Vendor sees customer details');
-$r=request($vendor,'vendor/dashboard.php',['csrf_token'=>token($vendor,'vendor/dashboard.php'),'action'=>'cancel','appointment_id'=>$id]); check(str_contains($r['body'],'Vendors cannot cancel or reschedule'),'Vendor cancel action rejected');
+foreach (['vendor/dashboard.php','vendor/appointments.php','vendor/manage.php','vendor/manage.php?section=services','vendor/manage.php?section=staff','notifications.php'] as $path) check(request($vendor,$path)['status']===200,'Vendor route '.$path);
+$r=request($vendor,'vendor/appointments.php'); check(str_contains($r['body'],'customer@example.test') && str_contains($r['body'],'Next appointments'),'Vendor sees customer details');
+$r=request($vendor,'vendor/appointments.php',['csrf_token'=>token($vendor,'vendor/appointments.php'),'action'=>'cancel','appointment_id'=>$id]); check(str_contains($r['body'],'Vendors cannot cancel or reschedule'),'Vendor cancel action rejected');
 $manage='vendor/manage.php?section=services';
 $r=request($vendor,$manage,['csrf_token'=>token($vendor,$manage),'name'=>'HTTP Service','price'=>'123.45','duration_minutes'=>'30','category_id'=>'1','status'=>'active','description'=>'HTTP created']);
 check($r['status']===302 && (int)scalar("SELECT COUNT(*) FROM services WHERE salon_id=? AND name='HTTP Service'",[$fixtures['salonId']])===1,'Vendor creates service through HTTP');

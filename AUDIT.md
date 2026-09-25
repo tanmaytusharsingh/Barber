@@ -1,4 +1,4 @@
-# Implementation verification — 24 September 2026
+# Implementation verification — 25 September 2026
 
 ## Implemented
 
@@ -19,6 +19,12 @@ The selected audit defects have been addressed:
 
 ## Verification
 
+Booking implementation verification: **153 checks passed** (70 domain/concurrency, 70 HTTP, 13 migration/restore). The mobile check also fixed footer email overflow.
+
+Role interface update: **184 checks passed** (70 domain/concurrency, 71 HTTP, 43 role UI assertions). The new assertions cover profile ownership and validation, notification counts, role navigation and redirects, review visibility, appointment table placement and colour priority, and admin salon directory access. Further browser testing was stopped at the user's request.
+
+Customer navigation now uses an avatar dropdown for profile editing and notifications. Vendors have a review/appointment summary dashboard and separate upcoming/history tables. Admins have an approval dashboard and a searchable salon directory. Existing visible reviews are displayed; submitting new reviews remains outside scope.
+
 - Domain checks cover deadlines at 30:01 / 30:00 / 29:59, stale forms, interval boundaries, ownership, inactive records, snapshots, rollback after storage failure, cash collection and completion.
 - Independent PHP processes verify competing bookings, duplicate request keys and payment/cancellation races.
 - HTTP checks exercise registration, approval, role/session access, all new pages, vendor setup, immediate booking, expired deadlines, simulated payments, rescheduling, cancellation, refunds, notifications and POST logout.
@@ -35,6 +41,6 @@ The demo uses third-party Bootstrap, icons, fonts and images. Browser verificati
 
 ## Remaining outside this plan
 
-Real payment gateways, email/SMS, reviews, favorites, galleries, password recovery, account profile editing, weekly shifts, specialist leave and overnight hours remain unimplemented. Login throttling and a broader production penetration test are follow-up hardening work. XAMPP root defaults and seeded demo credentials remain development-only; deployment instructions require dedicated credentials and disabled/replaced demo accounts.
+Real payment gateways, email/SMS, review submission, favorites, galleries, password recovery, weekly shifts, specialist leave and overnight hours remain unimplemented. Login throttling and a broader production penetration test are follow-up hardening work. XAMPP root defaults and seeded demo credentials remain development-only; deployment instructions require dedicated credentials and disabled/replaced demo accounts.
 
 Legacy appointments backfilled from existing data cannot recover names or service descriptions that had already changed before this migration. New bookings preserve their own snapshots.

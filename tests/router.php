@@ -8,4 +8,4 @@ if (preg_match('~(^|/)(\.|config|includes|database|tests|scripts)|\.(md|sql|log|
 $root=realpath(__DIR__.'/..'); $file=realpath($root.'/'.$relative);
 if (!$file || !str_starts_with($file,$root.DIRECTORY_SEPARATOR) || !is_file($file)) { http_response_code(404); exit; }
 if (pathinfo($file,PATHINFO_EXTENSION)==='php') { require $file; return; }
-$types=['css'=>'text/css','svg'=>'image/svg+xml']; header('Content-Type: '.($types[pathinfo($file,PATHINFO_EXTENSION)]??'application/octet-stream')); readfile($file);
+$types=['css'=>'text/css','svg'=>'image/svg+xml','js'=>'application/javascript']; header('Content-Type: '.($types[pathinfo($file,PATHINFO_EXTENSION)]??'application/octet-stream')); readfile($file);

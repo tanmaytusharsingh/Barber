@@ -28,11 +28,12 @@ try {
     if (proc_close($process)!==0 || filesize($backup)<100) throw new RuntimeException('Backup failed: '.$error);
     echo 'Backup: '.$backup."\n";
     $pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations(version VARCHAR(100) PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
-    $version='002_booking_workflows';
+    foreach (['002_booking_workflows','003_multiple_services'] as $version) {
     $done=$pdo->prepare('SELECT 1 FROM schema_migrations WHERE version=?'); $done->execute([$version]);
     if (!$done->fetchColumn()) {
         foreach (explode(';',file_get_contents(__DIR__.'/../database/migrations/'.$version.'.sql')) as $sql) if (trim($sql)!=='') $pdo->exec($sql);
         $pdo->prepare('INSERT INTO schema_migrations(version) VALUES (?)')->execute([$version]);
+    }
     }
     echo "Migration complete (safe to rerun).\n";
     unlink($lock);
